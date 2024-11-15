@@ -20,6 +20,8 @@ source venv/bin/activate  # On Windows, use venv\Scripts\activate
 ```
 pip install -r requirements.txt
 ```
+5. Create .env using .env.example and fill it with your credentials
+
 ### Running the API
 
 1. Start the FastAPI server:
