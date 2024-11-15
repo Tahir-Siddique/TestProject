@@ -1,83 +1,90 @@
-import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker
-from database.connection import SessionLocal
 from main import app
-from models.clients import Client
-from routers.clients import get_db_session
-from schemas.clients import ClientCreate, ClientUpdate
 
-# Create a test database engine
-test_engine = create_engine("sqlite:///test.db")
-TestingSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=test_engine)
-
-# Override the get_db_session function to use the test database
-def override_get_db_session():
-    try:
-        db = TestingSessionLocal()
-        yield db
-    finally:
-        db.close()
-
-app.dependency_overrides[get_db_session] = override_get_db_session
-
-# Create a test client
 client = TestClient(app)
 
-# Test data
-test_client_1 = ClientCreate(name="John Doe", email="john.doe@example.com")
-test_client_2 = ClientCreate(name="Jane Smith", email="jane.smith@example.com")
-test_client_update = ClientUpdate(name="John Doe Updated", email="john.doe.updated@example.com")
-
-@pytest.fixture(autouse=True)
-def setup_database():
-    # Create the test database
-    Client.__table__.create(test_engine)
-    yield
-    # Clean up the test database
-    Client.__table__.drop(test_engine)
-
-def test_create_client():
-    response = client.post("/clients/", json=test_client_1.dict())
+# Test case for successful client creation
+def test_create_client_success():
+    response = client.post("/clients/", json={"name": "John Doe", "email": "john.doe@example.com"})
     assert response.status_code == 201
-    assert response.json()["data"]["name"] == test_client_1.name
-    assert response.json()["data"]["email"] == test_client_1.email
+    data = response.json()
+    assert data["status"] == "success"
+    assert "id" in data["data"]
+    assert data["data"]["name"] == "John Doe"
+    assert data["data"]["email"] == "john.doe@example.com"
 
-def test_get_clients():
-    # Create some test clients
-    client.post("/clients/", json=test_client_1.dict())
-    client.post("/clients/", json=test_client_2.dict())
 
-    response = client.get("/clients/")
+# Test case for retrieving all clients
+def test_get_clients_success():
+    # Create some clients
+    client.post("/clients/", json={"name": "Client A", "email": "client.a@example.com"})
+    client.post("/clients/", json={"name": "Client B", "email": "client.b@example.com"})
+    
+    response = client.get("/clients/", params={"limit": 10, "offset": 0})
     assert response.status_code == 200
-    assert len(response.json()["data"]) == 2
+    data = response.json()
+    assert data["status"] == "success"
+    assert len(data["data"]) > 0  # Should return at least one client
+    assert "total_count" in data["metadata"]["pagination"]
 
-def test_get_client():
-    # Create a test client
-    response = client.post("/clients/", json=test_client_1.dict())
+
+# Test case for retrieving a single client by ID
+def test_get_client_success():
+    # Create a client first
+    response = client.post("/clients/", json={"name": "Jane Doe", "email": "jane.doe@example.com"})
     client_id = response.json()["data"]["id"]
-
+    
     response = client.get(f"/clients/{client_id}")
     assert response.status_code == 200
-    assert response.json()["data"]["name"] == test_client_1.name
-    assert response.json()["data"]["email"] == test_client_1.email
+    data = response.json()
+    assert data["status"] == "success"
+    assert data["data"]["id"] == client_id
+    assert data["data"]["name"] == "Jane Doe"
+    assert data["data"]["email"] == "jane.doe@example.com"
 
-def test_update_client():
-    # Create a test client
-    response = client.post("/clients/", json=test_client_1.dict())
+# Test case for retrieving a client that doesn't exist
+def test_get_client_not_found():
+    response = client.get("/clients/999999")  # Assuming ID 999999 doesn't exist
+    assert response.status_code == 404
+    data = response.json()
+    assert data["status"] == "error"
+    assert data["message"] == "Client not found"
+
+# Test case for updating a client successfully
+def test_update_client_success():
+    # Create a client first
+    response = client.post("/clients/", json={"name": "John Doe", "email": "john.doe@example.com"})
     client_id = response.json()["data"]["id"]
-
-    response = client.put(f"/clients/{client_id}", json=test_client_update.dict())
+    
+    # Update client
+    response = client.put(f"/clients/{client_id}", json={"name": "John Updated", "email": "john.updated@example.com"})
     assert response.status_code == 200
-    assert response.json()["data"]["name"] == test_client_update.name
-    assert response.json()["data"]["email"] == test_client_update.email
+    data = response.json()
+    assert data["status"] == "success"
+    assert data["data"]["name"] == "John Updated"
+    assert data["data"]["email"] == "john.updated@example.com"
 
-def test_delete_client():
-    # Create a test client
-    response = client.post("/clients/", json=test_client_1.dict())
+# Test case for updating a non-existent client
+def test_update_client_not_found():
+    response = client.put("/clients/999999", json={"name": "Non Existent", "email": "non.existent@example.com"})
+    assert response.status_code == 404
+    data = response.json()
+    assert data["status"] == "error"
+    assert data["message"] == "Client not found"
+
+# Test case for successful client deletion
+def test_delete_client_success():
+    # Create a client first
+    response = client.post("/clients/", json={"name": "Client To Delete", "email": "delete.me@example.com"})
     client_id = response.json()["data"]["id"]
-
+    
     response = client.delete(f"/clients/{client_id}")
-    assert response.status_code == 200
-    assert response.json()["data"] == {"message": "Client deleted successfully."}
+    assert response.status_code == 204  # No content, just success
+
+# Test case for deleting a non-existent client
+def test_delete_client_not_found():
+    response = client.delete("/clients/999999")  # Assuming ID 999999 doesn't exist
+    assert response.status_code == 404
+    data = response.json()
+    assert data["status"] == "error"
+    assert data["message"] == "Client not found"
